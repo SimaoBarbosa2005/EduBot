@@ -1,82 +1,79 @@
-# EduBot — Assistente Inteligente de Apoio ao Ensino
+# EduBot - Assistente Inteligente com RAG
 
-EduBot é um assistente conversacional que responde a perguntas **exclusivamente com base nos documentos que carregares**, funcionando como tutor pessoal da tua disciplina.
+EduBot e um assistente conversacional para apoio ao ensino e estudo. Carrega
+documentos pedagogicos, cria um indice vetorial local e responde usando apenas
+os excertos recuperados desses documentos.
 
----
+## Como funciona
 
-## Estrutura do projecto
+1. Os documentos em `documentos/` sao lidos por `DocumentLoader`.
+2. O `RAGIndexer` divide o texto em chunks com metadados:
+   - nome do ficheiro
+   - pagina de PDF, quando existir
+   - slide de PPTX, quando existir
+   - indice do chunk
+3. O `OllamaEmbedder` gera embeddings locais com `nomic-embed-text`.
+4. O `VectorStore` guarda chunks e embeddings em ChromaDB, na pasta `.rag_index/`.
+5. A cada pergunta, o `Retriever` procura os chunks mais relevantes.
+6. O `ChatEngine` envia ao modelo apenas os chunks recuperados, nao os documentos inteiros.
 
-```
-EduBot/
-├── main.py               ← Ponto de entrada (executa este ficheiro)
-├── requirements.txt      ← Dependências Python
-├── documentos/           ← Coloca aqui PDFs, PPTXs e TXTs
-├── core/
-│   ├── document_loader.py   ← Lê e extrai texto dos ficheiros
-│   ├── context_builder.py   ← Prepara o contexto para a API
-│   └── chat_engine.py       ← Comunica com a API da Claude
-└── ui/
-    └── interface.py         ← Interface de terminal (chat)
-```
+## Requisitos
 
----
+- Python 3.10+
+- Ollama ativo localmente
+- Modelo de chat, por exemplo `llama3`
+- Modelo de embeddings `nomic-embed-text`
 
-## Instalação
-
-### 1. Instala as dependências
-
+```bash
 pip install -r requirements.txt
-
-### 2. Coloca os teus documentos
-
-Copia os ficheiros da disciplina para a pasta `documentos/`:
-
-```
-documentos/
-├── aula01_introducao.pdf
-├── slides_cap2.pptx
-├── resumo_teorico.txt
-└── ...
+ollama pull llama3
+ollama pull nomic-embed-text
 ```
 
-**Formatos suportados:** `.pdf` · `.pptx` · `.ppt` · `.txt` · `.md`
+## Executar em terminal
 
-### 4. Executa o EduBot
+```bash
+python main.py
+```
 
+Ao arrancar, o EduBot constroi o indice RAG com os documentos existentes.
+Tambem podes usar `/recarregar` para reconstruir o indice depois de adicionares
+ou alterares ficheiros.
+
+## Executar API web
+
+```bash
 uvicorn web.web:app --reload
-
-live service do html
-
----
-
-## Comandos disponíveis no chat
-
-| Comando         | Descrição                                      |
-|-----------------|------------------------------------------------|
-| `/ajuda`        | Mostra a lista de comandos                     |
-| `/documentos`   | Lista os documentos actualmente carregados     |
-| `/recarregar`   | Recarrega os ficheiros da pasta `documentos/`  |
-| `/limpar`       | Limpa o histórico da conversa actual           |
-| `/pasta`        | Mostra o caminho da pasta de documentos        |
-| `/sair`         | Termina o EduBot                               |
-
----
-
-## Exemplo de utilização
-
-```
-👤 Tu › O que é a normalização numa base de dados?
-
-🎓 EduBot › Segundo o documento "aula03_bd.pdf", a normalização é o
-processo de organizar os atributos e tabelas de uma base de dados
-relacional de forma a reduzir a redundância de dados...
 ```
 
----
+Depois abre `web/index.html` no browser, ou usa a extensao Live Server.
 
-## Notas
+## Endpoints uteis
 
-- As respostas são geradas **apenas** com base nos documentos carregados.
-- Se a informação não estiver nos documentos, o EduBot avisa-te.
-- O histórico de conversa é mantido durante a sessão; usa `/limpar` para recomeçar.
-- Documentos muito grandes são truncados automaticamente para respeitar os limites da API.
+```bash
+POST /chat
+POST /reindex
+POST /retrieve
+GET  /documents
+```
+
+Exemplo para testar retrieval:
+
+```bash
+curl -X POST http://127.0.0.1:8000/retrieve ^
+  -H "Content-Type: application/json" ^
+  -d "{\"message\":\"Quais sao os deveres deontologicos do engenheiro?\",\"top_k\":5}"
+```
+
+Se o retrieval estiver a funcionar, a resposta deve listar excertos com
+`metadata.source` e, quando aplicavel, `metadata.page` ou `metadata.slide`.
+
+## Formatos suportados
+
+- `.pdf`
+- `.pptx`
+- `.txt`
+- `.md`
+
+`.ppt` antigo pode nao ser suportado pela biblioteca `python-pptx`; se falhar,
+converte para `.pptx`.

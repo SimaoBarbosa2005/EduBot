@@ -1,15 +1,19 @@
-import requests
 import json
+from typing import Optional
+
+import requests
+
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
 MODEL = "llama3"
 MAX_HISTORY_TURNS = 20
+REQUEST_TIMEOUT = 120
 
 
 class ChatEngine:
-
-    def __init__(self, context_builder):
+    def __init__(self, context_builder, retriever: Optional[object] = None):
         self.context = context_builder
+        self.retriever = retriever
         self._history = []
 
     def clear_history(self):
@@ -19,18 +23,27 @@ class ChatEngine:
         max_msgs = MAX_HISTORY_TURNS * 2
         return self._history[-max_msgs:]
 
-    # ✅ método normal (caso queiras usar)
+    def _prepare_context(self, user_message: str) -> None:
+        if self.retriever is None:
+            self.context.set_retrieved_chunks([])
+            return
+
+        chunks = self.retriever.retrieve(user_message)
+        self.context.set_retrieved_chunks(chunks)
+
     def send(self, user_message: str) -> str:
+        self._prepare_context(user_message)
         self._history.append({"role": "user", "content": user_message})
 
         payload = {
             "model": MODEL,
             "messages": self.context.build_messages(self._trimmed_history()),
-            "stream": False
+            "stream": False,
         }
 
         try:
-            response = requests.post(OLLAMA_URL, json=payload)
+            response = requests.post(OLLAMA_URL, json=payload, timeout=REQUEST_TIMEOUT)
+            response.raise_for_status()
             data = response.json()
             reply = data["message"]["content"]
         except Exception as e:
@@ -40,19 +53,26 @@ class ChatEngine:
         return reply
 
     def stream(self, user_message: str):
+        self._prepare_context(user_message)
         self._history.append({"role": "user", "content": user_message})
 
         payload = {
             "model": MODEL,
             "messages": self.context.build_messages(self._trimmed_history()),
-            "stream": True
+            "stream": True,
         }
 
         full_reply = ""
 
         try:
-            with requests.post(OLLAMA_URL, json=payload, stream=True) as r:
-                for line in r.iter_lines():
+            with requests.post(
+                OLLAMA_URL,
+                json=payload,
+                stream=True,
+                timeout=REQUEST_TIMEOUT,
+            ) as response:
+                response.raise_for_status()
+                for line in response.iter_lines():
                     if line:
                         chunk = json.loads(line)
                         token = chunk.get("message", {}).get("content", "")

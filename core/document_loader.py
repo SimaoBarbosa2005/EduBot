@@ -1,126 +1,128 @@
 """
-Módulo de carregamento e processamento de documentos.
-Suporta ficheiros PDF e apresentações PowerPoint (.pptx).
+Document loading and text extraction.
+
+Keeps the old load_all() API, and also exposes load_all_sections() so the
+RAG index can preserve source metadata such as PDF page or PPTX slide.
 """
 
-import os
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
 
-# ── dependências opcionais ──────────────────────────────────────────────────
+@dataclass(frozen=True)
+class DocumentSection:
+    source: str
+    text: str
+    page: Optional[int] = None
+    slide: Optional[int] = None
+
 
 def _try_import_pdf():
     try:
         import pdfplumber
+
         return pdfplumber
     except ImportError:
         return None
 
+
 def _try_import_pptx():
     try:
         from pptx import Presentation
+
         return Presentation
     except ImportError:
         return None
 
 
-# ── classe principal ────────────────────────────────────────────────────────
-
 class DocumentLoader:
-    """Carrega documentos da pasta 'documentos/' e extrai o texto."""
+    """Loads supported files from the documentos/ folder."""
 
     SUPPORTED_EXTENSIONS = {".pdf", ".pptx", ".ppt", ".txt", ".md"}
 
     def __init__(self, docs_folder: str = "documentos"):
-        # Resolve sempre relativo ao diretório deste ficheiro
         base = Path(__file__).resolve().parent.parent
         self.docs_folder = base / docs_folder
         self.docs_folder.mkdir(exist_ok=True)
 
-    # ── listagem ────────────────────────────────────────────────────────────
-
     def list_documents(self) -> list[Path]:
-        """Devolve a lista de ficheiros suportados na pasta de documentos."""
         files = []
         for ext in self.SUPPORTED_EXTENSIONS:
             files.extend(self.docs_folder.glob(f"*{ext}"))
         return sorted(files)
 
-    # ── carregamento ────────────────────────────────────────────────────────
-
     def load_all(self) -> dict[str, str]:
-        """Carrega todos os documentos e devolve {nome: texto}."""
         docs = {}
-        files = self.list_documents()
-
-        if not files:
-            return docs
-
-        for path in files:
+        for path in self.list_documents():
             text = self._load_file(path)
             if text:
                 docs[path.name] = text
-
         return docs
 
+    def load_all_sections(self) -> list[DocumentSection]:
+        sections = []
+        for path in self.list_documents():
+            try:
+                sections.extend(self._load_file_sections(path))
+            except Exception as e:
+                print(f"  [Aviso] Erro ao carregar '{path.name}': {e}")
+        return sections
+
     def load_file(self, filename: str) -> Optional[str]:
-        """Carrega um único ficheiro pelo nome."""
         path = self.docs_folder / filename
         if not path.exists():
             return None
         return self._load_file(path)
 
-    # ── dispatchers internos ────────────────────────────────────────────────
-
     def _load_file(self, path: Path) -> Optional[str]:
+        sections = self._load_file_sections(path)
+        if not sections:
+            return None
+
+        blocks = []
+        for section in sections:
+            label = ""
+            if section.page is not None:
+                label = f"[Pagina {section.page}]\n"
+            elif section.slide is not None:
+                label = f"[Slide {section.slide}]\n"
+            blocks.append(f"{label}{section.text}")
+        return "\n\n".join(blocks)
+
+    def _load_file_sections(self, path: Path) -> list[DocumentSection]:
         ext = path.suffix.lower()
         loaders = {
-            ".pdf":  self._load_pdf,
-            ".pptx": self._load_pptx,
-            ".ppt":  self._load_pptx,
-            ".txt":  self._load_text,
-            ".md":   self._load_text,
+            ".pdf": self._load_pdf_sections,
+            ".pptx": self._load_pptx_sections,
+            ".ppt": self._load_pptx_sections,
+            ".txt": self._load_text_sections,
+            ".md": self._load_text_sections,
         }
         loader = loaders.get(ext)
-        if loader is None:
-            return None
-        try:
-            return loader(path)
-        except Exception as e:
-            print(f"  [Aviso] Erro ao carregar '{path.name}': {e}")
-            return None
+        return loader(path) if loader else []
 
-    # ── leitores específicos ────────────────────────────────────────────────
-
-    def _load_pdf(self, path: Path) -> Optional[str]:
+    def _load_pdf_sections(self, path: Path) -> list[DocumentSection]:
         pdfplumber = _try_import_pdf()
         if pdfplumber is None:
-            raise ImportError(
-                "pdfplumber não está instalado. "
-                "Execute: pip install pdfplumber"
-            )
+            raise ImportError("pdfplumber nao esta instalado. Execute: pip install pdfplumber")
 
-        pages = []
+        sections = []
         with pdfplumber.open(str(path)) as pdf:
             for i, page in enumerate(pdf.pages, 1):
                 text = page.extract_text()
                 if text:
-                    pages.append(f"[Página {i}]\n{text.strip()}")
+                    sections.append(DocumentSection(path.name, text.strip(), page=i))
+        return sections
 
-        return "\n\n".join(pages) if pages else None
-
-    def _load_pptx(self, path: Path) -> Optional[str]:
+    def _load_pptx_sections(self, path: Path) -> list[DocumentSection]:
         Presentation = _try_import_pptx()
         if Presentation is None:
-            raise ImportError(
-                "python-pptx não está instalado. "
-                "Execute: pip install python-pptx"
-            )
+            raise ImportError("python-pptx nao esta instalado. Execute: pip install python-pptx")
 
         prs = Presentation(str(path))
-        slides = []
+        sections = []
         for i, slide in enumerate(prs.slides, 1):
             texts = []
             for shape in slide.shapes:
@@ -130,9 +132,12 @@ class DocumentLoader:
                         if line:
                             texts.append(line)
             if texts:
-                slides.append(f"[Slide {i}]\n" + "\n".join(texts))
+                sections.append(DocumentSection(path.name, "\n".join(texts), slide=i))
+        return sections
 
-        return "\n\n".join(slides) if slides else None
+    def _load_text_sections(self, path: Path) -> list[DocumentSection]:
+        text = self._load_text(path)
+        return [DocumentSection(path.name, text)] if text else []
 
     def _load_text(self, path: Path) -> Optional[str]:
         try:
@@ -140,11 +145,8 @@ class DocumentLoader:
         except UnicodeDecodeError:
             return path.read_text(encoding="latin-1").strip() or None
 
-    # ── utilitários ─────────────────────────────────────────────────────────
-
     @staticmethod
     def clean_text(text: str) -> str:
-        """Remove espaços e linhas em branco excessivos."""
         text = re.sub(r"\n{3,}", "\n\n", text)
         text = re.sub(r" {2,}", " ", text)
         return text.strip()
