@@ -6,7 +6,7 @@ RAG index can preserve source metadata such as PDF page or PPTX slide.
 """
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
@@ -17,6 +17,7 @@ class DocumentSection:
     text: str
     page: Optional[int] = None
     slide: Optional[int] = None
+    metadata: dict = field(default_factory=dict)
 
 
 def _try_import_pdf():

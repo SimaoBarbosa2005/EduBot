@@ -1,6 +1,6 @@
 # EduBot - Assistente Inteligente com RAG
 
-EduBot e um assistente conversacional para apoio ao ensino e estudo. Carrega
+EduBot é um assistente conversacional para apoio ao ensino e estudo. Carrega
 documentos pedagogicos, cria um indice vetorial local e responde usando apenas
 os excertos recuperados desses documentos.
 
@@ -51,10 +51,14 @@ Depois abre `web/index.html` no browser, ou usa a extensao Live Server.
 ## Endpoints uteis
 
 ```bash
-POST /chat
+POST /chat                  # Streaming endpoint (recomendado)
+POST /chat-blocking         # Blocking endpoint (espera resposta completa)
 POST /reindex
 POST /retrieve
 GET  /documents
+GET  /crawl-sources         # Lista fontes web por disciplina
+POST /crawl                 # Crawla URLs de uma disciplina e guarda em ChromaDB
+POST /crawl-all             # Crawla as fontes predefinidas
 ```
 
 Exemplo para testar retrieval:
@@ -68,6 +72,41 @@ curl -X POST http://127.0.0.1:8000/retrieve ^
 Se o retrieval estiver a funcionar, a resposta deve listar excertos com
 `metadata.source` e, quando aplicavel, `metadata.page` ou `metadata.slide`.
 
+## Web crawlers por disciplina
+
+O EduBot tambem consegue recolher conteudo web educativo e guardar os chunks na
+mesma base ChromaDB usada pelos PDFs. Cada chunk web fica com metadados como:
+
+- `source_type`: `web`
+- `subject`: disciplina, por exemplo `filosofia`, `matematica`, `historia`, `ciencias`
+- `url`: pagina original
+- `title`: titulo da pagina
+
+Exemplo para crawlar uma pagina de Filosofia:
+
+```bash
+curl -X POST http://127.0.0.1:8000/crawl ^
+  -H "Content-Type: application/json" ^
+  -d "{\"subject\":\"filosofia\",\"urls\":[\"https://pt.wikipedia.org/wiki/Arist%C3%B3teles\"],\"max_pages_per_seed\":1}"
+```
+
+Exemplo para crawlar todas as fontes predefinidas:
+
+```bash
+curl -X POST "http://127.0.0.1:8000/crawl-all?max_pages_per_seed=1"
+```
+
+Depois podes filtrar retrieval/chat por disciplina:
+
+```bash
+curl -X POST http://127.0.0.1:8000/retrieve ^
+  -H "Content-Type: application/json" ^
+  -d "{\"message\":\"Fala-me de Aristoteles\",\"subject\":\"filosofia\",\"top_k\":3}"
+```
+
+No frontend tambem existe um seletor de disciplina. Se escolheres uma disciplina,
+o Ollama recebe contexto recuperado do ChromaDB apenas dessa area.
+
 ## Formatos suportados
 
 - `.pdf`
@@ -77,3 +116,149 @@ Se o retrieval estiver a funcionar, a resposta deve listar excertos com
 
 `.ppt` antigo pode nao ser suportado pela biblioteca `python-pptx`; se falhar,
 converte para `.pptx`.
+
+---
+
+## Otimizacoes de Performance
+
+EduBot foi otimizado para respostas mais rapidas:
+
+### 1. **Reducao de Timeouts**
+- Timeout de requests reduzido de 120s para 30s
+- Feedback mais rapido em caso de erro
+- Modelos configurados para respostas mais concisas
+
+### 2. **Connection Pooling**
+- Reutilizacao de conexoes HTTP persistentes
+- Reduz overhead de criacao de conexoes
+- 10 conexoes simultaneas no pool
+
+### 3. **Embedding Cache**
+- Cache MD5 de embeddings já calculados
+- Reduz calculos desnecessarios em perguntas repetidas ou similares
+- Limpa automaticamente se necessario
+
+### 4. **Batch Processing**
+- Embeddings processados em lotes de 10 chunks
+- Reduz latencia durante indexacao
+- Melhor eficiencia computacional
+
+### 5. **Streaming por Defecto**
+- Terminal e web API usam streaming
+- Tokens aparecem em tempo real na interface
+- Melhor experiencia de usuario
+
+### 6. **Otimizacao do Modelo**
+- `num_predict: 512` - limita tamanho de respostas
+- `temperature: 0.3` - respostas mais focadas e rapidas
+- `top_p: 0.9` - nucleus sampling para eficiencia
+
+### 7. **Retry Automático**
+- Reconexao automatica em falhas temporarias
+- Backoff exponencial para evitar congestao
+
+## Configuracoes Ajustaveis
+
+Para personalizar a performance, edita as constantes em:
+
+### `core/chat_engine.py`
+```python
+REQUEST_TIMEOUT = 30          # Tempo maximo de espera (segundos)
+CONNECTION_POOL_SIZE = 10     # Conexoes simultaneas
+MAX_RETRIES = 2               # Tentativas de reconexao
+
+# Opcoes de modelo (em send() e stream())
+"num_predict": 512            # Limita output do modelo
+"temperature": 0.3            # Controlabilidade (0.0-1.0)
+"top_p": 0.9                  # Diversidade (0.0-1.0)
+```
+
+### `core/retriever.py`
+```python
+EMBED_TIMEOUT = 30            # Timeout para embeddings
+EMBED_BATCH_SIZE = 10         # Tamanho de lote de embeddings
+```
+
+### `core/rag_indexer.py`
+```python
+EMBEDDING_BATCH_SIZE = 10     # Tamanho de lote durante indexacao
+```
+
+## Dicas de Performance
+
+### Para respostas ainda mais rapidas:
+1. **Usar modelo mais leve**: Tentar `mistral` em vez de `llama3`
+   ```bash
+   ollama pull mistral
+   ```
+   Depois edita `MODEL = "mistral"` em `chat_engine.py`
+
+2. **Reduzir num_predict**: Para respostas muito curtas
+   ```python
+   "num_predict": 256  # Resposta ainda mais curta
+   ```
+
+3. **Aumentar temperature para 0.5**: Mais natural, potencialmente mais rapido
+   ```python
+   "temperature": 0.5
+   ```
+
+4. **Reduzir top_k**: Recupera menos chunks
+   ```python
+   self.retriever = Retriever(self.vector_store, self.embedder, top_k=3)
+   ```
+
+### Para respostas de melhor qualidade:
+1. **Aumentar temperature**: Para mais criatividade
+   ```python
+   "temperature": 0.7
+   ```
+
+2. **Reduzir top_p**: Para mais focar
+   ```python
+   "top_p": 0.8
+   ```
+
+3. **Aumentar num_predict**: Para respostas mais detalhadas
+   ```python
+   "num_predict": 1024
+   ```
+
+4. **Aumentar top_k**: Mais contexto disponivel
+   ```python
+   self.retriever = Retriever(self.vector_store, self.embedder, top_k=10)
+   ```
+
+## Benchmarks Tipicos
+
+Com hardware moderado e modelo `llama3`:
+
+- **Tempo medio de resposta**: 3-8 segundos
+- **Tempo de embedding**: 100-500ms
+- **Latencia da API**: <100ms
+- **Indexacao**: ~200-500 chunks/minuto
+
+*Tempos variam com hardware, tamanho dos chunks e quantidade de contexto recuperado.*
+
+## Troubleshooting
+
+### "Timeout ao contactar Ollama"
+- Verifica se Ollama esta a correr: `ollama serve`
+- Aumenta REQUEST_TIMEOUT se o hardware for lento
+- Tenta reduzir num_predict para respostas mais rapidas
+
+### Respostas muito lentas
+- Verifica o uso de CPU/GPU em Ollama
+- Reduz top_k para menos chunks
+- Usa um modelo mais leve (mistral vs llama3)
+- Aumenta temperatura para respostas menos elaboradas
+
+### Cache de embeddings nao funciona
+- Limpa o cache: `embedder.clear_cache()` no codigo
+- Verifica se perguntas sao realmente identicas
+
+### Indexacao lenta
+- Reduz EMBEDDING_BATCH_SIZE para usar menos memoria
+- Aumenta EMBEDDING_BATCH_SIZE se houver memoria disponivel
+- Tenta com modelo embeddings mais leve (se disponivel)
+

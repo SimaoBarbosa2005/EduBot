@@ -43,28 +43,24 @@ class ContextBuilder:
         return f"""Es um assistente pedagogico especializado.
 
 REGRAS IMPORTANTES:
-- Responde APENAS com base nos excertos recuperados em CONTEXTO.
-- Se a informacao nao estiver EXPLICITAMENTE presente nos excertos do CONTEXTO, NAO respondas a pergunta.
-- NUNCA uses conhecimento externo, mesmo que saibas a resposta.
-- NUNCA inventes ou assumas uma fonte.
-- Se nao houver evidencia direta nos excertos, responde apenas: "Nao encontrei informacao suficiente nos materiais fornecidos."
-- Usa apenas informacao EXPLICITA nos excertos.
-- NAO facas inferencias, extrapolacoes ou interpretacoes alem do que esta escrito.
-- Nao uses expressoes como "podemos inferir", "provavelmente", "sugere que", "parece que" ou equivalentes.
-- Cada frase relevante da resposta deve indicar a fonte correspondente.
-- Usa SEMPRE referencias aos documentos quando responderes.
-- O formato da referencia deve ser exatamente: (nome_do_ficheiro, pagina X) ou (nome_do_ficheiro, slide X).
-- Nao uses identificadores como "Excerto 1"; usa apenas as referencias reais dos documentos.
-- Nao escrevas qualquer referencia se nao estiver associada a um excerto real do CONTEXTO.
-- Todas as referencias devem corresponder diretamente a excertos fornecidos.
-- Se os excertos tiverem informacao parcial, diz apenas o que esta explicito e indica que nao ha mais detalhe no contexto.
-- Se varios excertos forem relevantes, combina-os apenas quando houver suporte explicito em cada excerto citado.
+- Usa os excertos recuperados em CONTEXTO como fonte principal.
+- Quando usares informacao retirada do CONTEXTO, cita a fonte de forma natural.
+- Se varias frases seguidas vierem da mesma fonte/pagina, coloca uma unica citacao no fim do paragrafo.
+- Evita repetir a mesma citacao em frases consecutivas.
+- O formato da referencia deve ser: (nome_do_ficheiro, pagina X), (nome_do_ficheiro, slide X) ou (titulo_da_pagina, disciplina, URL).
+- Nao inventes referencias e nao cites documentos que nao estejam no CONTEXTO.
+- Se o CONTEXTO for parcial, responde ao que ele permite e completa com uma explicacao geral util.
+- Se a pergunta nao estiver bem coberta pelo CONTEXTO, diz isso de forma natural e depois ajuda com conhecimento geral.
+- Quando usares conhecimento geral fora dos materiais, assinala com uma frase curta, por exemplo: "Fora dos materiais recuperados, em termos gerais..."
+- Nao respondas apenas "Nao encontrei informacao suficiente nos materiais fornecidos" se conseguires dar uma explicacao pedagogica util.
 - Se direto, claro e evita respostas longas sem necessidade.
 
 FORMATO:
-- Responde em frases curtas.
-- Coloca a citacao no fim da frase que ela suporta.
-- Nao apresentes afirmacoes sem citacao.
+- Responde em portugues europeu.
+- Prefere 2 a 5 paragrafos curtos.
+- Agrupa ideias da mesma fonte no mesmo paragrafo para evitar citacoes repetidas.
+- Quando fizeres listas, coloca cada ponto numa linha separada, começando por "- ".
+- Usa listas apenas quando ajudarem a estudar.
 
 CONTEXTO:
 {chunks_block}
@@ -91,6 +87,11 @@ CONTEXTO:
             return f"{source}, pagina {metadata['page']}"
         if metadata.get("slide") is not None:
             return f"{source}, slide {metadata['slide']}"
+        if metadata.get("url"):
+            subject = metadata.get("subject")
+            if subject:
+                return f"{source}, {subject}, {metadata['url']}"
+            return f"{source}, {metadata['url']}"
         return None
 
     @staticmethod
@@ -98,7 +99,10 @@ CONTEXTO:
         return """Es um assistente pedagogico especializado.
 
 Nao existe contexto recuperado dos documentos para esta pergunta.
-Responde apenas: "Nao encontrei informacao suficiente nos materiais fornecidos."
+Explica isso de forma breve e, se a pergunta for geral, responde com conhecimento geral.
+Nao inventes referencias a documentos.
+Quando a resposta nao vier dos materiais, assinala isso com uma frase curta.
+Quando fizeres listas, coloca cada ponto numa linha separada, começando por "- ".
 """
 
     def build_messages(self, history: list[dict]) -> list[dict]:

@@ -181,6 +181,23 @@
             font-size: 14px;
         }
 
+        .message-bubble p {
+            margin: 0 0 8px;
+        }
+
+        .message-bubble p:last-child {
+            margin-bottom: 0;
+        }
+
+        .message-bubble ul {
+            margin: 8px 0;
+            padding-left: 20px;
+        }
+
+        .message-bubble li {
+            margin: 4px 0;
+        }
+
         .message.user .message-bubble {
             background: #3b82f6;
             color: white;
@@ -272,6 +289,22 @@
             cursor: not-allowed;
         }
 
+        .subject-select {
+            padding: 0 10px;
+            border: 1.5px solid #e2e8f0;
+            border-radius: 8px;
+            background: white;
+            color: #334155;
+            font-family: inherit;
+            font-size: 13px;
+            outline: none;
+        }
+
+        .subject-select:focus {
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
         .send-btn {
             background: #3b82f6;
             color: white;
@@ -311,6 +344,15 @@
                 max-width: 85%;
             }
 
+            .input-area {
+                flex-wrap: wrap;
+            }
+
+            .subject-select {
+                width: 100%;
+                height: 40px;
+            }
+
             .chat-header h1 {
                 font-size: 18px;
             }
@@ -334,9 +376,9 @@
                 <h2>Bem-vindo ao EduBot!</h2>
                 <p>O teu assistente de estudo inteligente está pronto para ajudar</p>
                 <div class="suggestion-buttons">
-                    <button class="suggestion-btn" onclick="sendSuggestion('Explica-me matemática de forma simples')">Explica-me matemática</button>
-                    <button class="suggestion-btn" onclick="sendSuggestion('Preciso de ajuda com história')">Ajuda com história</button>
-                    <button class="suggestion-btn" onclick="sendSuggestion('Dá-me dicas de estudo eficazes')">Dicas de estudo</button>
+                    <button class="suggestion-btn" onclick="sendSuggestion('O que é a deontologia profissional?')">Deontologia profissional</button>
+                    <button class="suggestion-btn" onclick="sendSuggestion('Quais são os deveres deontológicos do engenheiro?')">Deveres do engenheiro</button>
+                    <button class="suggestion-btn" onclick="sendSuggestion('Como se aplica a decisão ética na engenharia?')">Decisão ética</button>
                 </div>
             </div>
         </div>
@@ -346,6 +388,13 @@
         </div>
 
         <div class="input-area">
+            <select id="subjectSelect" class="subject-select" title="Disciplina">
+                <option value="">Geral</option>
+                <option value="filosofia">Filosofia</option>
+                <option value="matematica">Matemática</option>
+                <option value="historia">História</option>
+                <option value="ciencias">Ciências</option>
+            </select>
             <input
                 type="text"
                 id="messageInput"
@@ -363,6 +412,7 @@
         const messagesContainer = document.getElementById('messagesContainer');
         const messageInput = document.getElementById('messageInput');
         const sendBtn = document.getElementById('sendBtn');
+        const subjectSelect = document.getElementById('subjectSelect');
         let isLoading = false;
 
         async function sendMessage() {
@@ -392,18 +442,37 @@
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ message: message }),
+                    body: JSON.stringify({
+                        message: message,
+                        subject: subjectSelect.value || null,
+                    }),
                 });
 
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
 
-                const data = await response.json();
-                const botMessage = data.response || data.message || 'Desculpe, ocorreu um erro.';
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                const botBubble = addMessage('', 'bot');
 
-                // Add bot message
-                addMessage(botMessage, 'bot');
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    botBubble.textContent += decoder.decode(value, { stream: true });
+                    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                }
+
+                const remainingText = decoder.decode();
+                if (remainingText) {
+                    botBubble.textContent += remainingText;
+                }
+
+                if (!botBubble.textContent.trim()) {
+                    botBubble.textContent = 'Desculpe, ocorreu um erro.';
+                }
+
+                renderBotMessage(botBubble);
             } catch (error) {
                 console.error('Error:', error);
                 addMessage('Desculpe, não consegui ligar ao servidor. Certifica-te que o backend está a correr em http://127.0.0.1:8000', 'bot');
@@ -428,6 +497,65 @@
 
             // Scroll to bottom
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+            return bubble;
+        }
+
+        function renderBotMessage(bubble) {
+            const rawText = bubble.textContent.trim();
+            if (!rawText) return;
+
+            const lines = rawText.split(/\r?\n/);
+            const parts = [];
+            let paragraph = [];
+            let listItems = [];
+
+            function escapeHtml(text) {
+                return text
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#039;');
+            }
+
+            function flushParagraph() {
+                if (paragraph.length) {
+                    parts.push(`<p>${escapeHtml(paragraph.join(' '))}</p>`);
+                    paragraph = [];
+                }
+            }
+
+            function flushList() {
+                if (listItems.length) {
+                    parts.push(`<ul>${listItems.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`);
+                    listItems = [];
+                }
+            }
+
+            for (const line of lines) {
+                const trimmed = line.trim();
+                const bullet = trimmed.match(/^[-*]\s+(.+)/);
+
+                if (!trimmed) {
+                    flushParagraph();
+                    flushList();
+                    continue;
+                }
+
+                if (bullet) {
+                    flushParagraph();
+                    listItems.push(bullet[1]);
+                } else {
+                    flushList();
+                    paragraph.push(trimmed);
+                }
+            }
+
+            flushParagraph();
+            flushList();
+
+            bubble.innerHTML = parts.join('');
         }
 
         function showLoading() {

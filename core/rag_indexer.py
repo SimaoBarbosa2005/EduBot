@@ -11,6 +11,7 @@ from core.vector_store import VectorStore
 
 CHUNK_SIZE = 1500
 CHUNK_OVERLAP = 100
+EMBEDDING_BATCH_SIZE = 10  # Process embeddings in batches for faster indexing
 
 
 class RAGIndexer:
@@ -32,20 +33,39 @@ class RAGIndexer:
         self._progress(progress, "A ler documentos...")
         sections = self.loader.load_all_sections()
         self._progress(progress, f"{len(sections)} seccao(oes) extraida(s). A criar chunks...")
+        return self.index_sections(sections, reset_where={"source_type": "document"}, progress=progress)
+
+    def index_sections(
+        self,
+        sections: list[DocumentSection],
+        reset_where: dict[str, Any] | None = None,
+        extra_metadata: dict[str, Any] | None = None,
+        progress: Callable[[str], None] | None = None,
+    ) -> int:
         chunks = self._chunk_sections(sections)
 
         if not chunks:
-            self.vector_store.reset()
+            if reset_where:
+                self.vector_store.delete_where(reset_where)
             return 0
 
+        if extra_metadata:
+            for chunk in chunks:
+                chunk["metadata"].update(extra_metadata)
+
+        # Batch process embeddings for better performance
         embeddings = []
-        for i, chunk in enumerate(chunks, 1):
-            if i == 1 or i % 10 == 0 or i == len(chunks):
-                self._progress(progress, f"A gerar embeddings: {i}/{len(chunks)} chunks...")
-            embeddings.append(self.embedder.embed(chunk["text"]))
+        for i in range(0, len(chunks), EMBEDDING_BATCH_SIZE):
+            batch = chunks[i:i + EMBEDDING_BATCH_SIZE]
+            batch_end = min(i + EMBEDDING_BATCH_SIZE, len(chunks))
+            self._progress(progress, f"A gerar embeddings: {batch_end}/{len(chunks)} chunks...")
+            
+            batch_embeddings = self.embedder.embed_many([chunk["text"] for chunk in batch])
+            embeddings.extend(batch_embeddings)
 
         self._progress(progress, "A guardar indice vetorial...")
-        self.vector_store.reset()
+        if reset_where:
+            self.vector_store.delete_where(reset_where)
         self.vector_store.add_chunks(chunks, embeddings)
         return len(chunks)
 
@@ -64,12 +84,14 @@ class RAGIndexer:
                 if chunk_text:
                     metadata = {
                         "source": section.source,
+                        "source_type": "document",
                         "chunk_index": chunk_index,
                     }
                     if section.page is not None:
                         metadata["page"] = section.page
                     if section.slide is not None:
                         metadata["slide"] = section.slide
+                    metadata.update(section.metadata)
 
                     chunks.append(
                         {
@@ -88,7 +110,8 @@ class RAGIndexer:
     @staticmethod
     def _chunk_id(section: DocumentSection, chunk_index: int, text: str) -> str:
         location = section.page if section.page is not None else section.slide
-        raw = f"{section.source}:{location}:{chunk_index}:{text}"
+        url = section.metadata.get("url", "")
+        raw = f"{section.source}:{url}:{location}:{chunk_index}:{text}"
         return hashlib.sha1(raw.encode("utf-8")).hexdigest()
 
     @staticmethod
