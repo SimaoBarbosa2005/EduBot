@@ -6,7 +6,6 @@ Ponto de entrada principal da aplicação
 import sys
 import os
 
-# Garante que o diretório raiz está no path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ui.interface import EduBotInterface
