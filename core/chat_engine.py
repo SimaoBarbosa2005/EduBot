@@ -1,4 +1,5 @@
 import json
+import os
 from typing import Optional
 from functools import lru_cache
 import hashlib
@@ -8,8 +9,9 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 
-OLLAMA_URL = "http://localhost:11434/api/chat"
-MODEL = "llama3"
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
+OLLAMA_URL = f"{OLLAMA_BASE_URL}/api/chat"
+MODEL = os.getenv("OLLAMA_CHAT_MODEL", "llama3")
 MAX_HISTORY_TURNS = 20
 REQUEST_TIMEOUT = 30  # Reduced from 120 for faster feedback
 CONNECTION_POOL_SIZE = 10

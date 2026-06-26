@@ -1,0 +1,14 @@
+.git
+.rag_index
+__pycache__
+*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.venv
+venv
+env
+*.log
+.env
+Dockerfile
+docker-compose*.yml

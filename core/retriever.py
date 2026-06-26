@@ -1,5 +1,6 @@
 """Embedding and retrieval helpers for Ollama + ChromaDB."""
 
+import os
 from typing import Any
 from functools import lru_cache
 import hashlib
@@ -13,8 +14,8 @@ from urllib3.util.retry import Retry
 from core.vector_store import VectorStore
 
 
-OLLAMA_URL = "http://localhost:11434"
-EMBED_MODEL = "nomic-embed-text"
+OLLAMA_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
 DEFAULT_TOP_K = 5
 EMBED_TIMEOUT = 30
 EMBED_BATCH_SIZE = 10  # Process embeddings in batches for efficiency

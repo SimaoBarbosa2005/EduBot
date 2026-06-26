@@ -1,0 +1,15 @@
+services:
+  edubot:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-llama3}
+      OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-nomic-embed-text}
+    volumes:
+      - ./documentos:/app/documentos:ro
+      - ./.rag_index:/app/.rag_index
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped

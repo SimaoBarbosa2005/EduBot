@@ -48,6 +48,34 @@ uvicorn web.web:app --reload
 
 Depois abre `web/index.html` no browser, ou usa a extensao Live Server.
 
+## Executar com Docker
+
+Antes de arrancar o container, confirma que o Ollama esta ativo no host e que
+os modelos existem:
+
+```bash
+ollama serve
+ollama pull llama3
+ollama pull nomic-embed-text
+```
+
+Depois executa:
+
+```bash
+docker compose up --build
+```
+
+Abre `http://127.0.0.1:8000` no browser. O `docker-compose.yml` monta
+`documentos/` como leitura e guarda o indice ChromaDB em `.rag_index/`, para o
+indice persistir entre reinicios.
+
+Podes alterar os modelos ou o URL do Ollama com variaveis de ambiente:
+
+```bash
+OLLAMA_BASE_URL=http://host.docker.internal:11434 docker compose up --build
+OLLAMA_CHAT_MODEL=mistral OLLAMA_EMBED_MODEL=nomic-embed-text docker compose up --build
+```
+
 ## Endpoints uteis
 
 ```bash
